@@ -12,10 +12,10 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
-# 配置参数（可自定义）
-SOCKS_PORT=${SOCKS_PORT:-87}
-SOCKS_USER=${SOCKS_USER:-8888}
-SOCKS_PASS=${SOCKS_PASS:-8888}
+# 配置参数（将在安装过程中设置）
+SOCKS_PORT=""
+SOCKS_USER=""
+SOCKS_PASS=""
 XRAY_VERSION="1.8.11"
 
 # 输出颜色信息
@@ -23,6 +23,99 @@ info() { echo -e "${BLUE}[信息]${NC} $1"; }
 success() { echo -e "${GREEN}[成功]${NC} $1"; }
 warning() { echo -e "${YELLOW}[警告]${NC} $1"; }
 error() { echo -e "${RED}[错误]${NC} $1"; }
+
+# 安全的输入函数
+secure_input() {
+    local prompt="$1"
+    local var_name="$2"
+    local is_password="$3"
+    
+    while true; do
+        if [[ "$is_password" == "true" ]]; then
+            # 密码输入，不显示内容
+            read -sp "$prompt: " input
+            echo
+        else
+            # 普通输入
+            read -p "$prompt: " input
+        fi
+        
+        if [[ -n "$input" ]]; then
+            eval "$var_name=\"$input\""
+            break
+        else
+            error "输入不能为空，请重新输入"
+        fi
+    done
+}
+
+# 配置 SOCKS5 认证信息
+configure_socks5() {
+    echo ""
+    info "请配置 SOCKS5 代理认证信息"
+    echo "==============================================================="
+    
+    # 端口配置
+    while true; do
+        read -p "请输入 SOCKS5 端口 [默认: 87]: " input_port
+        if [[ -z "$input_port" ]]; then
+            SOCKS_PORT="87"
+            break
+        elif [[ "$input_port" =~ ^[0-9]+$ ]] && [ "$input_port" -ge 1 ] && [ "$input_port" -le 65535 ]; then
+            SOCKS_PORT="$input_port"
+            break
+        else
+            error "端口必须是 1-65535 之间的数字"
+        fi
+    done
+    
+    # 用户名配置
+    while true; do
+        read -p "请输入 SOCKS5 用户名 [默认: 8888]: " input_user
+        if [[ -z "$input_user" ]]; then
+            SOCKS_USER="8888"
+            break
+        elif [[ -n "$input_user" ]]; then
+            SOCKS_USER="$input_user"
+            break
+        else
+            error "用户名不能为空"
+        fi
+    done
+    
+    # 密码配置（安全输入）
+    while true; do
+        read -sp "请输入 SOCKS5 密码 [默认: 8888]: " input_pass
+        echo
+        if [[ -z "$input_pass" ]]; then
+            SOCKS_PASS="8888"
+            break
+        else
+            read -sp "请再次输入密码确认: " input_pass_confirm
+            echo
+            if [[ "$input_pass" == "$input_pass_confirm" ]]; then
+                SOCKS_PASS="$input_pass"
+                break
+            else
+                error "两次输入的密码不一致，请重新输入"
+            fi
+        fi
+    done
+    
+    # 显示配置摘要（密码用*号隐藏）
+    echo ""
+    info "配置摘要:"
+    echo "  - 端口: $SOCKS_PORT"
+    echo "  - 用户名: $SOCKS_USER"
+    echo "  - 密码: $(echo "$SOCKS_PASS" | sed 's/./*/g')"
+    echo ""
+    
+    read -p "确认使用以上配置? (y/N): " confirm
+    if [[ $confirm != [yY] ]]; then
+        info "重新配置..."
+        configure_socks5
+    fi
+}
 
 # 检查root权限
 check_root() {
@@ -204,6 +297,9 @@ create_config() {
   }
 }
 EOF
+
+    # 设置配置文件权限，保护密码
+    chmod 600 /etc/xray/config.json
 }
 
 # 启动服务
@@ -233,7 +329,7 @@ show_info() {
     echo "服务器IP: $SERVER_IP"
     echo "端口: $SOCKS_PORT"
     echo "用户名: $SOCKS_USER"
-    echo "密码: $SOCKS_PASS"
+    echo "密码: *** (已安全保存)"
     echo "协议: SOCKS5"
     echo "支持UDP: 是"
     echo ""
@@ -244,7 +340,7 @@ show_info() {
     echo "- 服务器: $SERVER_IP"
     echo "- 端口: $SOCKS_PORT"
     echo "- 用户名: $SOCKS_USER"
-    echo "- 密码: $SOCKS_PASS"
+    echo "- 密码: (您设置的密码)"
     echo "- 协议: SOCKS5"
     echo ""
     echo "==============================================================="
@@ -256,7 +352,14 @@ show_info() {
     echo "状态: systemctl status xray"
     echo "日志: journalctl -u xray -f"
     echo ""
-    echo "卸载: bash -c \"\$(wget -q -O- https://raw.githubusercontent.com/xy83953441-hue/xy1/xray-socks5-installer/main/uninstall.sh)\""
+    echo "==============================================================="
+    echo "                   安全提示"
+    echo "==============================================================="
+    echo "- 密码已安全保存在配置文件中"
+    echo "- 配置文件权限已设置为 600 (仅root可访问)"
+    echo "- 请妥善保管您的认证信息"
+    echo ""
+    echo "卸载: bash -c \"\$(wget -q -O- https://raw.githubusercontent.com/xy83953441-hue/xy1/main/uninstall.sh)\""
     echo "==============================================================="
 }
 
@@ -266,16 +369,15 @@ main() {
     echo "==============================================================="
     echo "               Xray SOCKS5 代理一键安装脚本"
     echo "==============================================================="
-    
-    # 显示配置信息
-    info "默认配置:"
-    echo "  - 端口: $SOCKS_PORT"
-    echo "  - 用户名: $SOCKS_USER"
-    echo "  - 密码: $SOCKS_PASS"
+    echo ""
+    info "此脚本将引导您安全配置 SOCKS5 代理服务"
     echo ""
     
+    # 配置 SOCKS5 认证信息
+    configure_socks5
+    
     # 确认安装
-    read -p "是否继续安装? (y/N): " confirm
+    read -p "是否开始安装? (y/N): " confirm
     if [[ $confirm != [yY] ]]; then
         info "安装已取消"
         exit 0
