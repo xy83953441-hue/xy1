@@ -21,6 +21,10 @@ SOCKS_USER="xy8395"
 SOCKS_PASS="xy8395"
 XRAY_VERSION="1.8.11"
 
+# 全局变量
+IP_COUNT=0
+declare -a IP_ARRAY
+
 # 输出颜色信息
 info() { echo -e "${BLUE}[信息]${NC} $1"; }
 success() { echo -e "${GREEN}[成功]${NC} $1"; }
@@ -84,8 +88,6 @@ check_ip_count() {
             exit 0
         fi
     fi
-    
-    return $IP_COUNT
 }
 
 # 检查root权限
@@ -212,7 +214,7 @@ EOF
 create_config() {
     info "生成配置文件..."
     
-    # 获取服务器IP
+    # 重新获取IP信息
     ALL_IPS=$(hostname -I)
     IP_ARRAY=($ALL_IPS)
     IP_COUNT=${#IP_ARRAY[@]}
@@ -473,7 +475,6 @@ main() {
     
     # 检查IP数量
     check_ip_count
-    IP_COUNT=$?
     
     # 确认安装
     read -p "是否开始安装? (y/N): " confirm
