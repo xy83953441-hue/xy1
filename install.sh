@@ -256,7 +256,7 @@ show_info() {
     echo "状态: systemctl status xray"
     echo "日志: journalctl -u xray -f"
     echo ""
-    echo "卸载: bash -c \"\$(wget -q -O- https://raw.githubusercontent.com/你的用户名/xray-socks5-installer/main/uninstall.sh)\""
+    echo "卸载: bash -c \"\$(wget -q -O- https://raw.githubusercontent.com/xy83953441-hue/xy1/xray-socks5-installer/main/uninstall.sh)\""
     echo "==============================================================="
 }
 
