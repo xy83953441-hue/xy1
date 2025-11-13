@@ -13,7 +13,7 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 
 # 安装口令
-INSTALL_PASSWORD="sock5"
+INSTALL_PASSWORD="socks"
 
 # 默认配置参数
 SOCKS_PORT="87"
