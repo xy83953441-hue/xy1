@@ -13,12 +13,12 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 
 # 安装口令
-INSTALL_PASSWORD="socks"
+INSTALL_PASSWORD="sock5"
 
-# 配置参数（将在安装过程中设置）
-SOCKS_PORT=""
-SOCKS_USER=""
-SOCKS_PASS=""
+# 默认配置参数
+SOCKS_PORT="87"
+SOCKS_USER="xy8395"
+SOCKS_PASS="xy8395"
 XRAY_VERSION="1.8.11"
 
 # 输出颜色信息
@@ -60,72 +60,32 @@ verify_password() {
     done
 }
 
-# 配置 SOCKS5 认证信息
-configure_socks5() {
-    echo ""
-    info "请配置 SOCKS5 代理认证信息"
-    echo "==============================================================="
+# 检查系统IP数量
+check_ip_count() {
+    info "检测服务器IP地址..."
     
-    # 端口配置
-    while true; do
-        read -p "请输入 SOCKS5 端口 [默认: 87]: " input_port
-        if [[ -z "$input_port" ]]; then
-            SOCKS_PORT="87"
-            break
-        elif [[ "$input_port" =~ ^[0-9]+$ ]] && [ "$input_port" -ge 1 ] && [ "$input_port" -le 65535 ]; then
-            SOCKS_PORT="$input_port"
-            break
-        else
-            error "端口必须是 1-65535 之间的数字"
-        fi
+    # 获取所有IP地址
+    ALL_IPS=$(hostname -I)
+    IP_ARRAY=($ALL_IPS)
+    IP_COUNT=${#IP_ARRAY[@]}
+    
+    info "检测到 $IP_COUNT 个IP地址:"
+    for i in "${!IP_ARRAY[@]}"; do
+        echo "  IP$((i+1)): ${IP_ARRAY[i]}"
     done
-    
-    # 用户名配置
-    while true; do
-        read -p "请输入 SOCKS5 用户名 [默认: 8888]: " input_user
-        if [[ -z "$input_user" ]]; then
-            SOCKS_USER="8888"
-            break
-        elif [[ -n "$input_user" ]]; then
-            SOCKS_USER="$input_user"
-            break
-        else
-            error "用户名不能为空"
-        fi
-    done
-    
-    # 密码配置（安全输入）
-    while true; do
-        read -sp "请输入 SOCKS5 密码 [默认: 8888]: " input_pass
-        echo
-        if [[ -z "$input_pass" ]]; then
-            SOCKS_PASS="8888"
-            break
-        else
-            read -sp "请再次输入密码确认: " input_pass_confirm
-            echo
-            if [[ "$input_pass" == "$input_pass_confirm" ]]; then
-                SOCKS_PASS="$input_pass"
-                break
-            else
-                error "两次输入的密码不一致，请重新输入"
-            fi
-        fi
-    done
-    
-    # 显示配置摘要（密码用*号隐藏）
-    echo ""
-    info "配置摘要:"
-    echo "  - 端口: $SOCKS_PORT"
-    echo "  - 用户名: $SOCKS_USER"
-    echo "  - 密码: $(echo "$SOCKS_PASS" | sed 's/./*/g')"
     echo ""
     
-    read -p "确认使用以上配置? (y/N): " confirm
-    if [[ $confirm != [yY] ]]; then
-        info "重新配置..."
-        configure_socks5
+    # 检查IP数量限制
+    if [ $IP_COUNT -gt 10 ]; then
+        warning "检测到超过10个IP地址，这可能影响性能"
+        read -p "是否继续安装? (y/N): " confirm
+        if [[ $confirm != [yY] ]]; then
+            info "安装已取消"
+            exit 0
+        fi
     fi
+    
+    return $IP_COUNT
 }
 
 # 检查root权限
@@ -253,9 +213,30 @@ create_config() {
     info "生成配置文件..."
     
     # 获取服务器IP
-    SERVER_IP=$(curl -s http://checkip.amazonaws.com || hostname -I | awk '{print $1}')
+    ALL_IPS=$(hostname -I)
+    IP_ARRAY=($ALL_IPS)
+    IP_COUNT=${#IP_ARRAY[@]}
+    
+    # 获取公网IP
+    PUBLIC_IP=$(curl -s http://checkip.amazonaws.com || echo "${IP_ARRAY[0]}")
     
     mkdir -p /etc/xray
+    
+    # 创建多IP配置文件
+    if [ $IP_COUNT -gt 1 ]; then
+        info "检测到多个IP，创建多IP配置..."
+        create_multi_ip_config
+    else
+        info "创建单IP配置..."
+        create_single_ip_config
+    fi
+
+    # 设置配置文件权限，保护密码
+    chmod 600 /etc/xray/config.json
+}
+
+# 创建单IP配置
+create_single_ip_config() {
     cat <<EOF > /etc/xray/config.json
 {
   "log": {
@@ -308,9 +289,78 @@ create_config() {
   }
 }
 EOF
+}
 
-    # 设置配置文件权限，保护密码
-    chmod 600 /etc/xray/config.json
+# 创建多IP配置
+create_multi_ip_config() {
+    # 获取所有IP
+    ALL_IPS=$(hostname -I)
+    IP_ARRAY=($ALL_IPS)
+    
+    # 开始创建配置文件
+    echo '{
+  "log": {
+    "loglevel": "warning"
+  },
+  "inbounds": [' > /etc/xray/config.json
+    
+    # 为每个IP创建inbound配置
+    for i in "${!IP_ARRAY[@]}"; do
+        if [ $i -gt 0 ]; then
+            echo "," >> /etc/xray/config.json
+        fi
+        cat <<EOF >> /etc/xray/config.json
+    {
+      "tag": "socks-in-${IP_ARRAY[i]//./_}",
+      "port": $((SOCKS_PORT + i)),
+      "listen": "${IP_ARRAY[i]}",
+      "protocol": "socks",
+      "settings": {
+        "auth": "password",
+        "accounts": [
+          {
+            "user": "$SOCKS_USER",
+            "pass": "$SOCKS_PASS"
+          }
+        ],
+        "udp": true,
+        "ip": "${IP_ARRAY[i]}"
+      },
+      "sniffing": {
+        "enabled": true,
+        "destOverride": ["http", "tls"]
+      }
+    }
+EOF
+    done
+    
+    # 添加outbounds和routing
+    cat <<EOF >> /etc/xray/config.json
+  ],
+  "outbounds": [
+    {
+      "tag": "direct",
+      "protocol": "freedom",
+      "settings": {}
+    },
+    {
+      "tag": "block",
+      "protocol": "blackhole",
+      "settings": {}
+    }
+  ],
+  "routing": {
+    "domainStrategy": "AsIs",
+    "rules": [
+      {
+        "type": "field",
+        "ip": ["geoip:private"],
+        "outboundTag": "block"
+      }
+    ]
+  }
+}
+EOF
 }
 
 # 启动服务
@@ -331,16 +381,31 @@ start_service() {
 
 # 显示安装信息
 show_info() {
-    SERVER_IP=$(curl -s http://checkip.amazonaws.com || hostname -I | awk '{print $1}')
+    ALL_IPS=$(hostname -I)
+    IP_ARRAY=($ALL_IPS)
+    IP_COUNT=${#IP_ARRAY[@]}
+    PUBLIC_IP=$(curl -s http://checkip.amazonaws.com || echo "${IP_ARRAY[0]}")
     
     echo ""
     echo "==============================================================="
     echo "                  Xray SOCKS5 安装完成！"
     echo "==============================================================="
-    echo "服务器IP: $SERVER_IP"
-    echo "端口: $SOCKS_PORT"
-    echo "用户名: $SOCKS_USER"
-    echo "密码: *** (已安全保存)"
+    echo "默认配置:"
+    echo "  - 端口: $SOCKS_PORT"
+    echo "  - 用户名: $SOCKS_USER"
+    echo "  - 密码: $SOCKS_PASS"
+    echo ""
+    
+    if [ $IP_COUNT -gt 1 ]; then
+        echo "多IP配置详情:"
+        for i in "${!IP_ARRAY[@]}"; do
+            echo "  - IP$((i+1)): ${IP_ARRAY[i]} : $((SOCKS_PORT + i))"
+        done
+    else
+        echo "服务器IP: $PUBLIC_IP"
+    fi
+    
+    echo ""
     echo "协议: SOCKS5"
     echo "支持UDP: 是"
     echo ""
@@ -348,11 +413,23 @@ show_info() {
     echo "                   使用方法"
     echo "==============================================================="
     echo "在代理客户端中配置:"
-    echo "- 服务器: $SERVER_IP"
-    echo "- 端口: $SOCKS_PORT"
-    echo "- 用户名: $SOCKS_USER"
-    echo "- 密码: (您设置的密码)"
-    echo "- 协议: SOCKS5"
+    if [ $IP_COUNT -gt 1 ]; then
+        echo "多IP选择:"
+        for i in "${!IP_ARRAY[@]}"; do
+            echo "- 服务器: ${IP_ARRAY[i]}"
+            echo "- 端口: $((SOCKS_PORT + i))"
+            echo "- 用户名: $SOCKS_USER"
+            echo "- 密码: $SOCKS_PASS"
+            echo "- 协议: SOCKS5"
+            echo ""
+        done
+    else
+        echo "- 服务器: $PUBLIC_IP"
+        echo "- 端口: $SOCKS_PORT"
+        echo "- 用户名: $SOCKS_USER"
+        echo "- 密码: $SOCKS_PASS"
+        echo "- 协议: SOCKS5"
+    fi
     echo ""
     echo "==============================================================="
     echo "                   管理命令"
@@ -364,11 +441,17 @@ show_info() {
     echo "日志: journalctl -u xray -f"
     echo ""
     echo "==============================================================="
-    echo "                   安全提示"
+    echo "                   IP 数量分析"
     echo "==============================================================="
-    echo "- 密码已安全保存在配置文件中"
-    echo "- 配置文件权限已设置为 600 (仅root可访问)"
-    echo "- 请妥善保管您的认证信息"
+    echo "当前服务器IP数量: $IP_COUNT"
+    if [ $IP_COUNT -gt 10 ]; then
+        warning "高IP数量警告: 检测到 $IP_COUNT 个IP，这可能会影响性能"
+        echo "建议: 考虑使用负载均衡或减少使用的IP数量"
+    elif [ $IP_COUNT -gt 5 ]; then
+        info "中等IP数量: $IP_COUNT 个IP，性能正常"
+    else
+        success "低IP数量: $IP_COUNT 个IP，性能最佳"
+    fi
     echo ""
     echo "卸载: bash -c \"\$(wget -q -O- https://raw.githubusercontent.com/xy83953441-hue/xy1/main/uninstall.sh)\""
     echo "==============================================================="
@@ -381,8 +464,16 @@ main() {
     # 验证安装口令
     verify_password
     
-    # 配置 SOCKS5 认证信息
-    configure_socks5
+    # 显示默认配置
+    info "使用默认SOCKS5配置:"
+    echo "  - 端口: $SOCKS_PORT"
+    echo "  - 用户名: $SOCKS_USER"
+    echo "  - 密码: $SOCKS_PASS"
+    echo ""
+    
+    # 检查IP数量
+    check_ip_count
+    IP_COUNT=$?
     
     # 确认安装
     read -p "是否开始安装? (y/N): " confirm
