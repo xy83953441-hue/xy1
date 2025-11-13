@@ -23,4 +23,4 @@
 ### 方法一：默认安装（推荐）
 
 ```bash
-bash -c "$(wget -q -O- https://raw.githubusercontent.com/你的用户名/xray-socks5-installer/main/install.sh)"
+bash -c "$(wget -q -O- https://raw.githubusercontent.com/xy83953441-hue/xy1/xray-socks5-installer/main/install.sh)"
