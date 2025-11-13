@@ -12,6 +12,9 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
+# 安装口令
+INSTALL_PASSWORD="sock5"
+
 # 配置参数（将在安装过程中设置）
 SOCKS_PORT=""
 SOCKS_USER=""
@@ -24,27 +27,35 @@ success() { echo -e "${GREEN}[成功]${NC} $1"; }
 warning() { echo -e "${YELLOW}[警告]${NC} $1"; }
 error() { echo -e "${RED}[错误]${NC} $1"; }
 
-# 安全的输入函数
-secure_input() {
-    local prompt="$1"
-    local var_name="$2"
-    local is_password="$3"
+# 验证安装口令
+verify_password() {
+    local attempts=0
+    local max_attempts=3
     
-    while true; do
-        if [[ "$is_password" == "true" ]]; then
-            # 密码输入，不显示内容
-            read -sp "$prompt: " input
-            echo
-        else
-            # 普通输入
-            read -p "$prompt: " input
-        fi
+    echo "==============================================================="
+    echo "               Xray SOCKS5 代理一键安装脚本"
+    echo "==============================================================="
+    echo ""
+    warning "此安装程序需要验证口令才能继续"
+    echo ""
+    
+    while [ $attempts -lt $max_attempts ]; do
+        read -sp "请输入安装口令: " input_password
+        echo
         
-        if [[ -n "$input" ]]; then
-            eval "$var_name=\"$input\""
-            break
+        if [ "$input_password" == "$INSTALL_PASSWORD" ]; then
+            success "口令验证成功，开始安装..."
+            echo ""
+            return 0
         else
-            error "输入不能为空，请重新输入"
+            attempts=$((attempts + 1))
+            remaining=$((max_attempts - attempts))
+            error "口令错误！剩余尝试次数: $remaining"
+            
+            if [ $remaining -eq 0 ]; then
+                error "验证失败，安装程序退出"
+                exit 1
+            fi
         fi
     done
 }
@@ -366,12 +377,9 @@ show_info() {
 # 主函数
 main() {
     clear
-    echo "==============================================================="
-    echo "               Xray SOCKS5 代理一键安装脚本"
-    echo "==============================================================="
-    echo ""
-    info "此脚本将引导您安全配置 SOCKS5 代理服务"
-    echo ""
+    
+    # 验证安装口令
+    verify_password
     
     # 配置 SOCKS5 认证信息
     configure_socks5
