@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Xray SOCKS5 一键安装脚本
-# GitHub: https://github.com/你的用户名/xray-socks5-installer
+# bash -c "$(curl -fsSL https://raw.githubusercontent.com/xy83953441-hue/xy1/main/install.sh)"
 
 set -e
 
